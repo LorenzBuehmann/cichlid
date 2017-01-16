@@ -28,7 +28,7 @@ object RDFS {
       System.err.println("Usage:Reasoner <instance> <schema> <output> [<memoryFraction>]")
       System.exit(1);
     }
-    val conf = new SparkConf().setAppName("Cichlid-RDFS")
+    val conf = new SparkConf().setAppName("Cichlid-RDFS").setMaster("local[4]")
     val instanceFile = args(0)
     val schemaFile = args(1)
     val outputFile = args(2)
