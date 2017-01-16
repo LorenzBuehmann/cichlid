@@ -1,9 +1,8 @@
 package net.sansa_stack.convert
 
 import nju.cichlid.Rules
-import org.apache.hadoop.io.{BytesWritable, IntWritable}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.{SparkConf, SparkContext}
 
 /**
   * @author Lorenz Buehmann
