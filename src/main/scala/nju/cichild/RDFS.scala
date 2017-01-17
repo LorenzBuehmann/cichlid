@@ -104,6 +104,6 @@ object RDFS {
       .map(t => (t._1, Rules.S_RDF_TYPE, t._2))
       .union(r7_t)
       .distinct(parallism)
-    tpall.saveAsTextFile(outputFile)
+    tpall.saveAsObjectFile(outputFile)
   }
 }
