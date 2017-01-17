@@ -9,7 +9,10 @@ import org.apache.spark.{SparkConf, SparkContext}
   */
 object Dictionary {
 
-  val conf = new SparkConf().setAppName("Dictionary Converter").setMaster("local[4]")
+  val conf = new SparkConf()
+    .setAppName("Dictionary Converter")
+    .setMaster("local[4]")
+    .set("spark.hadoop.validateOutputSpecs", "false")
   val sc = new SparkContext(conf)
 
   def generateDictionary(triplesPath: String, dictionaryPath: String): Unit = {
@@ -82,19 +85,61 @@ object Dictionary {
     sc.objectFile[(Seq[Byte], Seq[Byte], Seq[Byte])](encodedTriplesPath)
   }
 
+  import java.io.File
+
+  case class Config(triplesPath: File = new File("."),
+                    encodedTriplesPath: File = new File("."),
+                    dictionaryPath: File = new File("."),
+                    mode: String = "")
+
   def main(args: Array[String]): Unit = {
 
-    val source = "/tmp/lubm/Universities.nt"
+    val parser = new scopt.OptionParser[Config]("dictionary") {
+      head("dictionary", "v0.1")
 
-    val dictionaryPath = "/tmp/lubm/dictionary"
-    val encodedTriplesPath = "/tmp/lubm/encoded"
-    val decodedTriplesPath = "/tmp/lubm/decoded"
+      cmd("generate").action((_, c) => c.copy(mode = "generate")).
+        text("generate a dictionary for a given triples file.").
+        children(
+          opt[File]("source").abbr("s").required().action((x, c) =>
+            c.copy(triplesPath = x)).text("the N-Triples file"),
+          opt[File]("target").abbr("t").required().action((x, c) =>
+            c.copy(dictionaryPath = x)).text("the path of the dictionary")
+        )
 
-//    generateDictionary(source, dictionaryPath)
+      cmd("encode").action((_, c) => c.copy(mode = "encode")).
+        text("encode an N-Triples file based on a given dictionary.").
+        children(
+          opt[File]("source").abbr("s").required().action((x, c) =>
+            c.copy(triplesPath = x)).text("the N-Triples file"),
+          opt[File]("target").abbr("t").required().action((x, c) =>
+            c.copy(encodedTriplesPath = x)).text("the output path of the encoded N-Triples file"),
+          opt[File]("dict").abbr("d").required().action((x, c) =>
+            c.copy(dictionaryPath = x)).text("the path of the dictionary")
+        )
 
-    encode(source, encodedTriplesPath, dictionaryPath)
+      cmd("decode").action((_, c) => c.copy(mode = "decode")).
+        text("decodes an encoded N-Triples file based on a given dictionary.").
+        children(
+          opt[File]("source").abbr("s").required().action((x, c) =>
+            c.copy(encodedTriplesPath = x)).text("the encoded N-Triples file"),
+          opt[File]("target").abbr("t").required().action((x, c) =>
+            c.copy(triplesPath = x)).text("the output path of the decoded N-Triples file"),
+          opt[File]("dict").abbr("d").required().action((x, c) =>
+            c.copy(dictionaryPath = x)).text("the path of the dictionary")
+        )
+    }
 
-    decode(encodedTriplesPath, decodedTriplesPath, dictionaryPath)
+    // parser.parse returns Option[C]
+    parser.parse(args, Config()) match {
+      case Some(config) =>
+        config.mode match {
+          case "generate" => generateDictionary(config.triplesPath.getPath, config.dictionaryPath.getPath)
+          case "encode" => encode(config.triplesPath.getPath, config.encodedTriplesPath.getPath, config.dictionaryPath.getPath)
+          case "decode" => decode(config.encodedTriplesPath.getPath, config.triplesPath.getPath, config.dictionaryPath.getPath)
+        }
+      case None =>
+      // arguments are bad, error message will have been displayed
+    }
   }
 
 }
