@@ -75,7 +75,10 @@ object OWL {
       System.err.println("Usage:Reasoner<instance> <schema> <output> <StorageLevel> [<memoryFraction>]")
       System.exit(1);
     }
-    val conf = new SparkConf().setAppName("Cichlid-OWL")
+    val conf = new SparkConf()
+      .setAppName("Cichlid-OWL")
+      .setMaster("local[4]")
+      .set("spark.hadoop.validateOutputSpecs", "false")
     val instanceFile = args(0)
     val schemaFile = args(1)
     val outputFile = args(2)
@@ -353,6 +356,8 @@ object OWL {
     val resultTypes = types.map(t => (t._1, Rules.S_RDF_TYPE, t._2))
     val resultSames = sames.map(t => (t._1, Rules.S_OWL_SAME_AS, t._2))
     val resultTriples = triples.union(r11)
-    resultTypes.union(resultSames).union(resultTriples).saveAsTextFile(outputFile)
-  } //end of main(args:String)
+
+    // write to disk
+    resultTypes.union(resultSames).union(resultTriples).saveAsObjectFile(outputFile)
+  }
 }
