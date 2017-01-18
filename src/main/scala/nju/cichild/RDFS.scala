@@ -1,5 +1,6 @@
 package nju.cichlid
 
+import net.sansa_stack.convert.Dictionary
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.HashPartitioner
@@ -10,7 +11,7 @@ import org.apache.spark.rdd.UnionRDD
 import org.apache.spark.storage.StorageLevel
 
 object RDFS {
-  val parallism = 30
+  val parallism = 4
   val partitioner = new HashPartitioner(parallism)
 
   def addTransitive[A, B](s: Set[(A, B)]) = {
@@ -28,7 +29,10 @@ object RDFS {
       System.err.println("Usage:Reasoner <instance> <schema> <output> [<memoryFraction>]")
       System.exit(1);
     }
-    val conf = new SparkConf().setAppName("Cichlid-RDFS").setMaster("local[4]")
+    val conf = new SparkConf()
+      .setAppName("Cichlid-RDFS")
+      .setMaster("local[4]")
+      .set("spark.hadoop.validateOutputSpecs", "false")
     val instanceFile = args(0)
     val schemaFile = args(1)
     val outputFile = args(2)
@@ -36,20 +40,15 @@ object RDFS {
       conf.set("spark.storage.memoryFraction", args(3))
     }
     val sc = new SparkContext(conf)
-    val text = sc.sequenceFile[BytesWritable, IntWritable](
-      instanceFile, classOf[BytesWritable], classOf[IntWritable], parallism
-    )
-    //parse triples
-    val triples = text
-      .map(t => t._1.getBytes())
-      .map(t => (t.slice(0, 8).toSeq, t.slice(8, 16).toSeq, t.slice(16, 24).toSeq))
-    val stext = sc.sequenceFile[BytesWritable, IntWritable](
-      schemaFile, classOf[BytesWritable], classOf[IntWritable]
-    )
+
+    // load instance data triples
+    val triples = sc.objectFile[(Seq[Byte], Seq[Byte], Seq[Byte])](instanceFile,  parallism).distinct().persist()
+    println(triples.count())
+
     // load schema triples
-    val ins = stext
-      .map(t => t._1.getBytes())
-      .map(t => (t.slice(0, 8).toSeq, t.slice(8, 16).toSeq, t.slice(16, 24).toSeq))
+    val ins = sc.objectFile[(Seq[Byte], Seq[Byte], Seq[Byte])](schemaFile)
+    println(ins.count())
+
     //schema filter and load to memory
     val subprop = ins
       .filter(t => t._2.equals(Rules.S_RDFS_SUBPROPERTY_OF))
@@ -75,35 +74,49 @@ object RDFS {
     val sp = sc.broadcast(subprops.toMap)
     val cl = sc.broadcast(subclasses.toMap)
     val dm = sc.broadcast(domain.toMap)
+
     val rg = sc.broadcast(range.toMap)
     //rule 7: s p o & p rdfs:subPropertyOf q => s q o
     val r7_t = triples
       .filter(t => sp.value.contains(t._2))
       .map(t => (t._1, sp.value(t._2), t._3))
       .persist()
+//    println("r7: " + r7_t.count())
     val r7_out = r7_t.union(triples)
     //rule 2:p rdfs:domain x & s p o => s rdf:type x 
     val r2_out = r7_out
       .filter(t => dm.value.contains(t._2))
       .map(t => (t._1, dm.value(t._2)))
+//    println("r2: " + r2_out.count())
     //rule 3:p rdfs:range x & s p o => o rdf:type x
     val r3_out = r7_out
       .filter(t => rg.value.contains(t._2))
       .map(t => (t._3, rg.value(t._2)))
+//    println("r3: " + r3_out.count())
     //the result of rule 2 and rule 3
     val tp = triples
       .filter(t => t._2.equals(Rules.S_RDF_TYPE))
       .map(t => (t._1, t._3))
+
     val out_23 = r2_out.union(r3_out).union(tp)
     //rule 9:s rdf:type x & x rdfs:subClassOf y => s rdf:type y
     val r9_out = out_23
       .filter(t => cl.value.contains(t._2))
       .map(t => (t._1, cl.value(t._2)))
+
     val tpall = out_23
       .union(r9_out)
       .map(t => (t._1, Rules.S_RDF_TYPE, t._2))
       .union(r7_t)
+      .union(r7_out)
       .distinct(parallism)
+
+    val diff = tpall.subtract(triples)
+    println(s"|G_new|= ${diff.count()}")
+
+    println(s"|G_inf|= ${tpall.count()}")
+
+    // write to disk
     tpall.saveAsObjectFile(outputFile)
   }
 }
